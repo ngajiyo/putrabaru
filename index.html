@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Putra Baru - Fix Edit Angka</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; }
+        .item-card { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; }
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        const SB_URL = 'https://pfichwnfffjzibusofao.supabase.co'; 
+        const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmaWNod25mZmZqemlidXNvZmFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU4MzE0NjIsImV4cCI6MjA4MTQwNzQ2Mn0.Hp9nGeQEiNXnKoPkeSY2Qoey0HP2Er0E4TbwBe_y64c';
+        const supabaseClient = supabase.createClient(SB_URL, SB_KEY);
+
+        function App() {
+            const [query, setQuery] = useState('');
+            const [items, setItems] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [hasSearched, setHasSearched] = useState(false);
+            const [editingBarcode, setEditingBarcode] = useState(null);
+            const [isAdding, setIsAdding] = useState(false);
+            const [formData, setFormData] = useState({});
+
+            const formatIDR = (val) => {
+                const num = parseFloat(val);
+                return isNaN(num) ? "0" : num.toLocaleString('id-ID');
+            };
+
+            const loadData = async (e) => {
+                if (e) e.preventDefault();
+                if (!query.trim()) return;
+                setLoading(true); setHasSearched(true); setIsAdding(false);
+                try {
+                    const { data, error } = await supabaseClient
+                        .from('putrabaru')
+                        .select('*')
+                        .ilike('nama', `%${query.trim()}%`)
+                        .order('nama', { ascending: true });
+                    if (error) throw error;
+                    setItems(data || []);
+                } catch (err) { console.error(err); }
+                finally { setLoading(false); }
+            };
+
+            // PERBAIKAN UTAMA: Pastikan angka dibersihkan sebelum masuk ke form
+            const startEdit = (item) => {
+                setEditingBarcode(item.barcode);
+                
+                // Membersihkan angka dari karakter aneh jika ada
+                const cleanHPP = item.hpp !== null ? item.hpp.toString().replace(/[^0-9.]/g, '') : 0;
+                const cleanHarga = item.harga !== null ? item.harga.toString().replace(/[^0-9.]/g, '') : 0;
+
+                setFormData({
+                    ...item,
+                    hpp: parseFloat(cleanHPP) || 0,
+                    harga: parseFloat(cleanHarga) || 0
+                });
+            };
+
+            const handleUpdate = async (barcode) => {
+                try {
+                    const { error } = await supabaseClient
+                        .from('putrabaru')
+                        .update({
+                            nama: formData.nama,
+                            kategori: formData.kategori,
+                            satuan: formData.satuan,
+                            harga: parseFloat(formData.harga) || 0,
+                            hpp: parseFloat(formData.hpp) || 0
+                        })
+                        .eq('barcode', barcode);
+
+                    if (error) throw error;
+                    setEditingBarcode(null);
+                    loadData();
+                } catch (err) { alert("Gagal simpan: " + err.message); }
+            };
+
+            const handleCreate = async () => {
+                if (!formData.nama || !formData.barcode) { alert("Nama & Barcode wajib!"); return; }
+                setLoading(true);
+                try {
+                    const { error } = await supabaseClient.from('putrabaru').insert([{
+                        barcode: formData.barcode,
+                        nama: formData.nama,
+                        kategori: formData.kategori || 'Umum',
+                        satuan: formData.satuan || 'Pcs',
+                        harga: parseFloat(formData.harga) || 0,
+                        hpp: parseFloat(formData.hpp) || 0
+                    }]);
+                    if (error) throw error;
+                    setFormData({}); setIsAdding(false); setQuery(formData.nama);
+                    setTimeout(() => loadData(), 500);
+                } catch (err) { alert("Gagal tambah: " + err.message); }
+                finally { setLoading(false); }
+            };
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen pb-10 px-4">
+                    <div className="py-8 text-center">
+                        <h1 className="text-3xl font-black text-slate-900 tracking-tighter uppercase italic">Putra Baru</h1>
+                    </div>
+
+                    <form onSubmit={loadData} className="mb-4 flex gap-2">
+                        <input className="flex-1 p-4 rounded-2xl border-2 border-slate-100 shadow-sm outline-none focus:border-slate-900 text-sm font-semibold" placeholder="Ketik nama barang..." value={query} onChange={(e) => setQuery(e.target.value)} />
+                        <button type="submit" className="bg-slate-900 text-white px-6 rounded-2xl font-bold active:scale-95 transition-all">
+                            {loading && !isAdding ? '...' : 'CARI'}
+                        </button>
+                    </form>
+
+                    <button onClick={() => { setIsAdding(!isAdding); setFormData({hpp: 0, harga: 0}); setHasSearched(true); }} className={`w-full mb-8 py-3 rounded-2xl font-bold text-sm transition-all border-2 ${isAdding ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-white border-slate-900 text-slate-900 shadow-sm'}`}>
+                        {isAdding ? '✕ BATAL' : '+ TAMBAH BARANG'}
+                    </button>
+
+                    {isAdding && (
+                        <div className="mb-10 p-6 bg-white rounded-[2rem] border-2 border-slate-900 shadow-xl space-y-4">
+                            <h2 className="text-center font-black text-slate-900 text-xs tracking-widest uppercase mb-2">Input Barang Baru</h2>
+                            <input className="w-full p-3 border-2 border-slate-100 rounded-xl text-sm font-bold outline-none focus:border-slate-900" placeholder="Barcode..." value={formData.barcode || ''} onChange={e => setFormData({...formData, barcode: e.target.value})} />
+                            <input className="w-full p-3 border-2 border-slate-100 rounded-xl text-sm font-bold outline-none focus:border-slate-900" placeholder="Nama Barang..." value={formData.nama || ''} onChange={e => setFormData({...formData, nama: e.target.value})} />
+                            <div className="grid grid-cols-2 gap-3">
+                                <input className="p-3 border-2 border-slate-100 rounded-xl text-xs font-semibold outline-none focus:border-slate-900" placeholder="Kategori" value={formData.kategori || ''} onChange={e => setFormData({...formData, kategori: e.target.value})} />
+                                <input className="p-3 border-2 border-slate-100 rounded-xl text-xs font-semibold outline-none focus:border-slate-900" placeholder="Satuan" value={formData.satuan || ''} onChange={e => setFormData({...formData, satuan: e.target.value})} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="flex flex-col">
+                                    <label className="text-[10px] font-bold text-emerald-600 ml-1">HARGA JUAL</label>
+                                    <input className="p-3 border-2 border-slate-100 rounded-xl text-sm font-bold text-emerald-600 outline-none" type="number" step="any" value={formData.harga ?? 0} onChange={e => setFormData({...formData, harga: e.target.value})} />
+                                </div>
+                                <div className="flex flex-col">
+                                    <label className="text-[10px] font-bold text-rose-500 ml-1">MODAL (HPP)</label>
+                                    <input className="p-3 border-2 border-slate-100 rounded-xl text-sm font-bold text-rose-500 outline-none" type="number" step="any" value={formData.hpp ?? 0} onChange={e => setFormData({...formData, hpp: e.target.value})} />
+                                </div>
+                            </div>
+                            <button onClick={handleCreate} disabled={loading} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase shadow-lg active:scale-95 transition-all">SIMPAN BARANG</button>
+                        </div>
+                    )}
+
+                    <div className="space-y-4">
+                        {!hasSearched && !isAdding ? (
+                            <div className="text-center py-20 text-slate-300 italic text-sm">Gunakan fitur Cari atau Tambah</div>
+                        ) : (
+                            items.map((item) => (
+                                <div key={item.barcode} className="item-card p-5 shadow-sm border-l-4 border-slate-900 bg-white">
+                                    {editingBarcode === item.barcode ? (
+                                        <div className="space-y-3">
+                                            <input className="w-full p-2 border rounded font-bold text-sm bg-slate-50" value={formData.nama || ''} onChange={e => setFormData({...formData, nama: e.target.value})} />
+                                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                                <input className="p-2 border rounded" value={formData.kategori || ''} onChange={e => setFormData({...formData, kategori: e.target.value})} />
+                                                <input className="p-2 border rounded" value={formData.satuan || ''} onChange={e => setFormData({...formData, satuan: e.target.value})} />
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div className="flex flex-col">
+                                                    <label className="text-[9px] font-bold text-emerald-600 uppercase">Jual</label>
+                                                    <input className="p-2 border rounded font-bold text-emerald-600 text-sm outline-none" type="number" step="any" value={formData.harga ?? 0} onChange={e => setFormData({...formData, harga: e.target.value})} />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <label className="text-[9px] font-bold text-rose-500 uppercase">Modal</label>
+                                                    <input className="p-2 border rounded font-bold text-rose-500 text-sm outline-none" type="number" step="any" value={formData.hpp ?? 0} onChange={e => setFormData({...formData, hpp: e.target.value})} />
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2 pt-2">
+                                                <button onClick={() => handleUpdate(item.barcode)} className="flex-1 bg-slate-900 text-white py-2 rounded-xl font-bold text-xs uppercase">Simpan</button>
+                                                <button onClick={() => setEditingBarcode(null)} className="px-4 py-2 text-slate-400 text-xs font-bold uppercase">Batal</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex justify-between items-center">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1 text-[9px] font-black uppercase tracking-tighter">
+                                                    <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded">{item.kategori || 'Umum'}</span>
+                                                    <span className="text-slate-300 font-mono italic">{item.barcode}</span>
+                                                </div>
+                                                <h3 className="font-bold text-slate-800 text-base leading-tight mb-2 uppercase">{item.nama}</h3>
+                                                <div className="flex gap-4">
+                                                    <div>
+                                                        <p className="text-[8px] text-slate-400 font-bold uppercase">Harga Jual</p>
+                                                        <p className="text-sm font-black text-slate-900 italic">Rp {formatIDR(item.harga)}</p>
+                                                    </div>
+                                                    <div className="border-l pl-4">
+                                                        <p className="text-[8px] text-slate-400 font-bold uppercase">Modal</p>
+                                                        <p className="text-sm font-bold text-slate-400 italic">Rp {formatIDR(item.hpp)}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button onClick={() => startEdit(item)} className="bg-slate-50 text-slate-900 px-4 py-2 rounded-xl text-[10px] font-black border border-slate-200 uppercase">Edit</button>
+                                        </div>
+                                    )}
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
